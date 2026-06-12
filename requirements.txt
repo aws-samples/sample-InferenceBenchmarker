@@ -1,7 +1,7 @@
 locust==2.43.3
 boto3==1.43.6
 sagemaker==3.13.0
-urllib3==2.6.3
+urllib3==2.7.0
 cloudpickle==3.1.2
 psutil==7.0.0
 numpy==2.4.4
