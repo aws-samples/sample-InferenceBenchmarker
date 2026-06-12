@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# benchmark — self-bootstrapping entry point for InferenceBenchmarker.
+#
+#   ./benchmark --init        # one-time: set up the venv + optionally add to PATH, then exit
+#   ./benchmark --factories-file ... --client-rps 10 --obs-time 30 ...
+#
+# On first run (no virtual env recorded) it interactively sets up a venv:
+#   - reuse an existing venv (path you provide), or
+#   - create a dedicated .venvIB with a python you choose
+# then installs requirements.txt into it. The chosen venv path is remembered in
+# .venvIB_path so later runs use it silently. All args are forwarded to
+# server_capacity/find_rps.sh, run with the venv's bin/ on PATH.
+set -euo pipefail
+
+# resolve symlinks so _DIR is the real repo dir even when benchmark is invoked
+# via a symlink on PATH (e.g. ~/.local/bin/benchmark)
+_SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$_SOURCE" ]; do
+    _TARGET="$(readlink "$_SOURCE")"
+    case "$_TARGET" in
+        /*) _SOURCE="$_TARGET" ;;
+        *)  _SOURCE="$(cd "$(dirname "$_SOURCE")" && pwd)/$_TARGET" ;;
+    esac
+done
+_DIR="$(cd "$(dirname "$_SOURCE")" && pwd)"
+VENV_DIR="${_DIR}/.venvIB"
+VENV_PTR="${_DIR}/.venvIB_path"
+REQUIREMENTS="${_DIR}/requirements.txt"
+
+# ---------------------------------------------------------------------------
+# Setup: choose/create a venv, install requirements, optionally add to PATH.
+# Runs automatically on first use, or explicitly via `benchmark --init`.
+# Sets the global VENV and writes the .venvIB_path pointer.
+# ---------------------------------------------------------------------------
+_setup() {
+    echo "================================================================================"
+    echo "InferenceBenchmarker — setup"
+    echo "================================================================================"
+    read -r -p "Use an existing virtual env? Enter its path, or press return to have InferenceBenchmarker create a dedicated .venvIB: " EXISTING
+
+    if [[ -n "$EXISTING" ]]; then
+        # use the provided venv as-is, install requirements into it
+        VENV="$EXISTING"
+        if [[ ! -x "${VENV}/bin/python" && ! -x "${VENV}/bin/python3" ]]; then
+            echo "Error: ${VENV} does not look like a virtual env (no bin/python)"; exit 1
+        fi
+        echo "Installing requirements.txt into ${VENV}..."
+        "${VENV}/bin/python" -m pip install -r "$REQUIREMENTS"
+    else
+        # list available python interpreters, then ask which to use
+        echo "Available python interpreters:"
+        for p in $(compgen -c | grep -E '^python([0-9.]*)?$' | sort -u); do
+            path="$(command -v "$p" 2>/dev/null || true)"
+            [[ -n "$path" ]] && printf "   %-10s %s (%s)\n" "$p" "$path" "$("$path" --version 2>&1)"
+        done
+        read -r -p "Which python to use to create .venvIB?: " PYBIN
+        [[ -z "$PYBIN" ]] && { echo "Error: no python selected"; exit 1; }
+        command -v "$PYBIN" >/dev/null 2>&1 || { echo "Error: '$PYBIN' not found"; exit 1; }
+
+        echo "Creating .venvIB with $PYBIN..."
+        "$PYBIN" -m venv "$VENV_DIR"
+        "${VENV_DIR}/bin/python" -m pip install --upgrade pip
+        "${VENV_DIR}/bin/python" -m pip install -r "$REQUIREMENTS"
+        VENV="$VENV_DIR"
+    fi
+
+    echo "$VENV" > "$VENV_PTR"
+    echo "✓ Environment ready: $VENV"
+
+    # offer to put `benchmark` on PATH so it can be run by bare name from anywhere
+    read -r -p "Add 'benchmark' to your PATH so you can run it from anywhere? [y/N]: " ADD_PATH
+    if [[ "$ADD_PATH" =~ ^[Yy] ]]; then
+        TARGET_DIR="${HOME}/.local/bin"
+        mkdir -p "$TARGET_DIR"
+        ln -sf "${_DIR}/benchmark" "${TARGET_DIR}/benchmark"
+        echo "✓ Symlinked ${TARGET_DIR}/benchmark -> ${_DIR}/benchmark"
+        case ":${PATH}:" in
+            *":${TARGET_DIR}:"*)
+                echo "  ${TARGET_DIR} already on PATH — 'benchmark' works now." ;;
+            *)
+                # append the export to ~/.bashrc (once) so new shells pick it up
+                EXPORT_LINE="export PATH=\"${TARGET_DIR}:\$PATH\""
+                if [[ -f "${HOME}/.bashrc" ]] && grep -qF "$EXPORT_LINE" "${HOME}/.bashrc"; then
+                    echo "  PATH entry already present in ~/.bashrc."
+                else
+                    printf '\n# added by InferenceBenchmarker — put %s (benchmark) on PATH\n%s\n' \
+                        "$TARGET_DIR" "$EXPORT_LINE" >> "${HOME}/.bashrc"
+                    echo "  ✓ Added ${TARGET_DIR} to PATH in ~/.bashrc"
+                fi ;;
+        esac
+    fi
+    echo "--------------------------------------------------------------------------------"
+}
+
+# Explicit one-time setup: `benchmark --init` runs setup and exits (re-runs even if
+# already configured, so it doubles as reconfigure).
+if [[ "${1:-}" == "--init" ]]; then
+    _setup
+    echo "Setup complete. Open a new shell and run: benchmark"
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Resolve the venv to use (recorded → dir → first-run setup)
+# ---------------------------------------------------------------------------
+VENV=""
+if [[ -f "$VENV_PTR" ]]; then
+    VENV="$(cat "$VENV_PTR")"
+elif [[ -d "$VENV_DIR" ]]; then
+    VENV="$VENV_DIR"
+fi
+
+# nothing recorded → run setup once (it sets VENV + writes the pointer)
+if [[ -z "$VENV" ]]; then
+    _setup
+fi
+
+# ---------------------------------------------------------------------------
+# Run find_rps.sh with the venv's bin/ on PATH (locust/aiperf/python resolve from it)
+# ---------------------------------------------------------------------------
+export PATH="${VENV}/bin:${PATH}"
+exec "${_DIR}/server_capacity/find_rps.sh" "$@"

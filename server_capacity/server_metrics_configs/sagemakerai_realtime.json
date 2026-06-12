@@ -1,0 +1,26 @@
+[
+    {
+        "stream": "cloudwatch",
+        "Namespace": "/aws/sagemaker/Endpoints",
+        "Dimensions": [
+            {"Name": "EndpointName", "Value": "InferenceBenchmarker-CNN"},
+            {"Name": "VariantName", "Value": "AllTraffic"}
+        ],
+        "Period": 60,
+        "Lag": 30,
+        "Metrics": ["CPUUtilization", "MemoryUtilization", "DiskUtilization", "GPUUtilization", "GPUMemoryUtilization"],
+        "Statistics": [["Average", "Maximum"], ["Average", "Maximum"], ["Average", "Maximum"], ["Average", "Maximum"], ["Average", "Maximum"]]
+    },
+    {
+        "stream": "cloudwatch",
+        "Namespace": "AWS/SageMaker",
+        "Dimensions": [
+            {"Name": "EndpointName", "Value": "InferenceBenchmarker-CNN"},
+            {"Name": "VariantName", "Value": "AllTraffic"}
+        ],
+        "Period": 60,
+        "Lag": 30,
+        "Metrics": ["Invocations", "ModelLatency", "OverheadLatency", "Invocation4XXErrors", "Invocation5XXErrors"],
+        "Statistics": [["Sum"], ["Average"], ["Average"], ["Sum"], ["Sum"]]
+    }
+]
