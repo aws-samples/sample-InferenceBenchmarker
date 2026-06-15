@@ -215,7 +215,7 @@ Detailed token metrics land under `.tmp/<timestamp>_benchmark/aiperf/`.
 benchmark --plot .tmp/<run1> .tmp/<run2>
 ```
 
-[sample plot](https://htmlpreview.github.io/?https://github.com/aws-samples/sample-InferenceBenchmarker/blob/main/visualization/sample_benchmark_plots.html)
+[sample plot](https://raw.githack.com/aws-samples/sample-InferenceBenchmarker/main/visualization/sample_benchmark_plots.html)
 
 
 ### All flags
