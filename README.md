@@ -10,17 +10,17 @@
 
 Model-, platform-, and payload-agnostic load testing and capacity planning for inference endpoints.
 
-* **Guaranteed client RPS.** Customizes and wraps [Locust][locust-url] to pace requests from
+* **Guaranteed client RPS** – Customizes and wraps [Locust][locust-url] to pace requests from
   the client so a target **client requests-per-second (RPS)** is sustained.
-* **Client-side bottleneck diagnostics.** Detects when the client sending requests is the limiting factor, so you know a result reflects the server.
-* **Any inference endpoint.** Traditional ML, GenAI, or any other HTTPS endpoint.
-* **Defined in plain Python.** Endpoint characteristics — invocation logic, payload
+* **Client-side bottleneck diagnostics** – Detects when the client sending requests is the limiting factor.
+* **Any inference endpoin.** – Traditional ML, GenAI, or any other HTTPS endpoint.
+* **Defined in plain Python** – Endpoint characteristics — invocation logic, payload
   generation, endpoint creation — are expressed as simple Python function definitions.
-* **Configurable server metrics.** Latches to configurable server metrics to correlate
+* **Configurable server metrics** – Latches to configurable server metrics to correlate
   hardware utilization (or any available metric) at max (or any) capacity — to plan capacity
   management across multiple endpoints, autoscaling, and cost extrapolations.
-* **aiperf integration.** Integrates with NVIDIA [`aiperf`][aiperf-url] for token usage metrics.
-* **Comparison visualizations.** Basic bar-plot reports for comparing configurations side by side.
+* **aiperf integration** – Integrates with NVIDIA [`aiperf`][aiperf-url] for token usage metrics.
+* **Comparison visualizations** – Basic bar-plot reports for comparing configurations side by side.
 
 ### Built With
 
