@@ -278,6 +278,8 @@ See [client_capacity/README.md](client_capacity/README.md) for usage.
 
 * **Automatic RPS** – Automate trial and error server rps supported at success threshold when --endpoint-config for hardware telemetry provided. [tracking issues](https://github.com/aws-samples/sample-InferenceBenchmarker/issues)
 
+* **Plot metadata** – Provide a dict to add legend and hover info for better visuals in plots. [tracking issues](https://github.com/aws-samples/sample-InferenceBenchmarker/issues)
+
 
 <!-- SECURITY -->
 ## Security
