@@ -1,6 +1,6 @@
 # Client Diagnostics
 
-Tools to measure the load-generating client's capacity. Importable from the package:
+Tools to measure the load-generating client's capacity
 
 ```python
 from client_capacity.worker_saturation import find_worker_saturation
