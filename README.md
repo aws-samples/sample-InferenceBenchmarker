@@ -13,7 +13,7 @@ Model-, platform-, and payload-agnostic load testing and capacity planning for i
 * **Guaranteed client RPS** – Customizes and wraps [Locust][locust-url] to pace requests from
   the client so a target **client requests-per-second (RPS)** is sustained.
 * **Client-side bottleneck diagnostics** – Detects when the client sending requests is the limiting factor.
-* **Any inference endpoin.** – Traditional ML, GenAI, or any other HTTPS endpoint.
+* **Any inference endpoint** – Traditional ML, GenAI, or any other HTTPS endpoint.
 * **Defined in plain Python** – Endpoint characteristics — invocation logic, payload
   generation, endpoint creation — are expressed as simple Python function definitions.
 * **Configurable server metrics** – Latches to configurable server metrics to correlate
