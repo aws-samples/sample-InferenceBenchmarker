@@ -88,7 +88,6 @@ InferenceBenchmarker takes your invocation logic defined in Python functions in 
 2. `payload_factory()` is called **once per worker** and has two modes.
 
     **`pre_computed=True`** —  payload pre-built, at request time a payload is just picked from the list, so payload-build cost is **not** included. Use this mode if payload generation logic is compute heavy – causing CPU to be a client bottleneck. Might cause higher memory usage during benchmarking.
-    latency:
 
     ```python
     def payload_factory() -> dict[str, bool | list[Payload]]:
@@ -135,7 +134,7 @@ Detailed reports land under `.tmp/<timestamp>_benchmark/`.
 
 #### Bounding a wave: `--obs-time` and `--num-requests`
 
-`--client-rps` sets the rate (how fast users are added). `--obs-time` and `--num-requests`
+`--client-rps` sets the rate (how many requests per second are fired). `--obs-time` and `--num-requests`
 decide how long the wave runs — pass at least one:
 
 | You pass | Wave ends when |
@@ -247,7 +246,7 @@ benchmark --plot .tmp/<run1> .tmp/<run2>
 <!-- CLIENT DIAGNOSTICS -->
 ## Client Diagnostics
 
-InferenceBenchmarker detects client bottleneck and alerts you (Locust only for now) — after
+InferenceBenchmarker detects client bottleneck and alerts you (when you run the Locust wave) — after
 every wave it scans the Locust logs for CPU / heartbeat saturation and prints a warning if the
 client was overloaded:
 
