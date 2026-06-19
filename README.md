@@ -273,6 +273,10 @@ See [client_capacity/README.md](client_capacity/README.md) for usage.
 <!-- UPCOMING IMPROVEMENTS -->
 ## Upcoming Improvements
 
+* **endpoint_factory** – Add endpoint creation code in factories — create a latch for Automatic RPS. [tracking issues](https://github.com/aws-samples/sample-InferenceBenchmarker/issues)
+
+* **Hydrate w Examples** – EKS, Hyperpod, EC2, OCP(on-prem) etc. examples. [tracking issues](https://github.com/aws-samples/sample-InferenceBenchmarker/issues)
+
 * **Interactive CLI** – Add traces while running benchmarks in the current dry benchmark tool. [tracking issues](https://github.com/aws-samples/sample-InferenceBenchmarker/issues)
 
 * **Automatic RPS** – Automate trial and error server rps supported at success threshold when --endpoint-config for hardware telemetry provided. [tracking issues](https://github.com/aws-samples/sample-InferenceBenchmarker/issues)
