@@ -8,4 +8,4 @@ numpy==2.4.4
 aiperf==0.9.0
 pandas==2.3.3
 datasets
-plotly==6.8.0
+plotly==6.4.0
