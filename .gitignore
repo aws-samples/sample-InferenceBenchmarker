@@ -1,3 +1,4 @@
 .venvIB*
 .tmp
 .gitignore
+*.pyc

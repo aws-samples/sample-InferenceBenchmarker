@@ -13,7 +13,6 @@ def invoke_factory(endpoint_name=None):
 
     client = boto3.client(
         'sagemaker-runtime',
-        region_name='us-east-1',
         config=Config(retries={'max_attempts': 0}, max_pool_connections=500),
     )
 
