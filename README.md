@@ -71,7 +71,7 @@ InferenceBenchmarker takes your invocation logic defined in Python functions in 
         # user on that worker. Put expensive, reusable client state here — e.g. the boto3
         # client and its connection pool — so it isn't rebuilt per request.
         import json, boto3
-        client = boto3.client('sagemaker-runtime', region_name='us-east-1')
+        client = boto3.client('sagemaker-runtime')
 
         def invoke(payload: Payload) -> None:
             # PER-REQUEST: called once for each request a user fires.
