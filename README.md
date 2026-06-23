@@ -279,7 +279,7 @@ See [client_capacity/README.md](client_capacity/README.md) for usage.
 
 * **Interactive CLI** – Add traces while running benchmarks in the current dry benchmark tool. [tracking issues](https://github.com/aws-samples/sample-InferenceBenchmarker/issues)
 
-* **Automatic RPS** – Automate trial and error server rps supported at success threshold when --endpoint-config for hardware telemetry provided. [tracking issue](https://github.com/aws-samples/sample-InferenceBenchmarker/issues/2)
+* **Automatic RPS** – Automate trial and error server rps supported at success threshold when --endpoint-config for hardware telemetry provided. [tracking issue](https://github.com/aws-samples/sample-InferenceBenchmarker/issues/3)
 
 * **Plot metadata** – Provide a dict to add legend and hover info for better visuals in plots. [tracking issues](https://github.com/aws-samples/sample-InferenceBenchmarker/issues)
 
