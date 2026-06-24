@@ -216,6 +216,18 @@ benchmark --plot .tmp/<run1> .tmp/<run2>
 
 <a href="https://raw.githack.com/aws-samples/sample-InferenceBenchmarker/main/visualization/sample_benchmark_plots.html" target="_blank" rel="noopener noreferrer">sample plot</a>
 
+**Label runs and attach hover info** with `--plot-metadata` — a JSON object keyed by run-dir
+basename, passed either inline or as a path to a `.json` file. For each run, `legend` renames
+it in the shared legend; every other key/value is shown as a hover line on that run's bars:
+
+```sh
+benchmark --plot .tmp/<run1> .tmp/<run2> .tmp/<run3> \
+  --plot-metadata visualization/hover_configs/example.json
+```
+
+The [sample plot](https://raw.githack.com/aws-samples/sample-InferenceBenchmarker/main/visualization/sample_benchmark_plots.html)
+above is rendered with this metadata.
+
 
 ### All flags
 
@@ -241,6 +253,7 @@ benchmark --plot .tmp/<run1> .tmp/<run2>
 --plot DIR [DIR ...]      Build a comparison report from existing run dirs (no wave); e.g. --plot <dir1> <dir2>
 --plot-output-dir DIR     Output dir for the report (default: first --plot dir; e.g. --plot <dir1> <dir2> -> <dir1>)
 --plot-fields JSON        Restrict plotted metrics per source; e.g. '{"locust": ["Latency (ms)"], "aiperf": ["Server RPS"]}'
+--plot-metadata JSON|FILE Per-run legend rename + hover info, keyed by dir basename; inline JSON or a .json path (see Bar plots)
 ```
 
 <!-- CLIENT DIAGNOSTICS -->
@@ -273,15 +286,11 @@ See [client_capacity/README.md](client_capacity/README.md) for usage.
 <!-- UPCOMING IMPROVEMENTS -->
 ## Upcoming Improvements
 
-* **endpoint_factory** – Add endpoint creation code in factories — create a latch for Automatic RPS. [tracking issues](https://github.com/aws-samples/sample-InferenceBenchmarker/issues)
-
-* **Hydrate w Examples** – EKS, Hyperpod, EC2, OCP(on-prem) etc. examples. [tracking issues](https://github.com/aws-samples/sample-InferenceBenchmarker/issues)
-
-* **Interactive CLI** – Add traces while running benchmarks in the current dry benchmark tool. [tracking issues](https://github.com/aws-samples/sample-InferenceBenchmarker/issues)
-
-* **Automatic RPS** – Automate trial and error server rps supported at success threshold when --endpoint-config for hardware telemetry provided. [tracking issue](https://github.com/aws-samples/sample-InferenceBenchmarker/issues/3)
-
-* **Plot metadata** – Provide a dict to add legend and hover info for better visuals in plots. [tracking issues](https://github.com/aws-samples/sample-InferenceBenchmarker/issues)
+- [ ] **endpoint_factory** – Add endpoint creation code in factories — create a latch for Automatic RPS. [tracking issues](https://github.com/aws-samples/sample-InferenceBenchmarker/issues)
+- [ ] **Hydrate w Examples** – EKS, Hyperpod, EC2, OCP(on-prem) etc. examples. [tracking issues](https://github.com/aws-samples/sample-InferenceBenchmarker/issues)
+- [ ] **Interactive CLI** – Add traces while running benchmarks in the current dry benchmark tool. [tracking issues](https://github.com/aws-samples/sample-InferenceBenchmarker/issues)
+- [ ] **Automatic RPS** – Automate trial and error server rps supported at success threshold when --endpoint-config for hardware telemetry provided. [tracking issue](https://github.com/aws-samples/sample-InferenceBenchmarker/issues/3)
+- [x] **Plot metadata** – Provide a JSON (inline or file) to set per-run legend names and hover info in plots.
 
 
 <!-- SECURITY -->

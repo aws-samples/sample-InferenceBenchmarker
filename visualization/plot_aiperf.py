@@ -156,8 +156,14 @@ def _build_run_series(run_dir, fields_filter):
     return metrics, True
 
 
-def make_aiperf_figure(run_dirs, fields_filter=None, default_theme='light', run_color=None):
-    """Build the aiperf figure (no file). Returns (fig or None, missing_dirs)."""
+def make_aiperf_figure(run_dirs, fields_filter=None, default_theme='light', run_color=None,
+                       dir_meta=None):
+    """Build the aiperf figure (no file). Returns (fig or None, missing_dirs).
+
+    dir_meta: optional {dir_basename: {'label': str, 'hover': [(k, v), ...]}} — 'label' is the
+    display name (legend override or basename); 'hover' adds per-run hover lines.
+    """
+    dir_meta = dir_meta or {}
     series_by_run, missing = [], []
     for d in run_dirs:
         metrics, found = _build_run_series(d, fields_filter)
@@ -165,7 +171,12 @@ def make_aiperf_figure(run_dirs, fields_filter=None, default_theme='light', run_
             missing.append(d)
             continue
         if metrics:
-            series_by_run.append((os.path.basename(os.path.normpath(d)), metrics))
+            key = os.path.normpath(d)
+            base = os.path.basename(key)
+            meta = dir_meta.get(key, {})
+            label = meta.get('label', base)
+            hover = meta.get('hover', [])
+            series_by_run.append((label, metrics, hover))
 
     if not series_by_run:
         return None, missing
