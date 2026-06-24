@@ -51,6 +51,7 @@ PLOT=0
 PLOT_DIRS=()
 PLOT_OUTPUT_DIR=""
 PLOT_FIELDS=""
+PLOT_METADATA=""
 THEME="light"
 
 # ---------------------------------------------------------------------------
@@ -90,6 +91,7 @@ while [[ $# -gt 0 ]]; do
             done ;;
         --plot-output-dir)   PLOT_OUTPUT_DIR="$2";   shift 2 ;;
         --plot-fields)       PLOT_FIELDS="$2";       shift 2 ;;
+        --plot-metadata)     PLOT_METADATA="$2";     shift 2 ;;
         --theme)             THEME="$2";             shift 2 ;;
         *) echo "Unknown argument: $1"; exit 1 ;;
     esac
@@ -106,7 +108,7 @@ if [[ "$PLOT" -eq 1 ]]; then
     fi
     PYTHONPATH="${ROOT_DIR}/visualization:${PYTHONPATH:-}" \
     python3 "${ROOT_DIR}/visualization/plot.py" \
-        "$PLOT_OUTPUT_DIR" "$THEME" "$PLOT_FIELDS" "${PLOT_DIRS[@]}"
+        "$PLOT_OUTPUT_DIR" "$THEME" "$PLOT_FIELDS" "$PLOT_METADATA" "${PLOT_DIRS[@]}"
     exit $?
 fi
 

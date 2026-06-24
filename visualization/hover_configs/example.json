@@ -1,0 +1,20 @@
+{
+    "20260612_141530_benchmark": {
+        "legend": "vanilla",
+        "note": "baseline",
+        "GPUs": 1,
+        "max_batch": 32
+    },
+    "20260612_152045_benchmark": {
+        "legend": "eagle-head",
+        "GPUs": 1,
+        "max_batch": 32,
+        "draft_tokens": 5
+    },
+    "20260612_163310_benchmark": {
+        "legend": "moe",
+        "GPUs": 4,
+        "max_batch": 64,
+        "experts_per_tok": 2
+    }
+}

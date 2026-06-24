@@ -13,6 +13,7 @@ The data contract (see SERIES below) is identical for both plot modules, so this
 holds all the Plotly wiring and the modules only parse their own artifacts.
 """
 
+import html
 import math
 import os
 import re
@@ -25,12 +26,16 @@ from plotly.subplots import make_subplots
 # ---------------------------------------------------------------------------
 # Data contract
 # ---------------------------------------------------------------------------
-# build_bar_figure receives `series_by_run`: an ordered list of (run_label, metrics),
+# build_bar_figure receives `series_by_run`: an ordered list of either
+#     (run_label, metrics)                 # no per-run hover metadata
+#     (run_label, metrics, hover_lines)    # hover_lines = [(key, value), ...] shown on hover
 # where metrics is an ordered list of dicts, each one of:
 #     {'name': 'Latency (ms)', 'unit': 'ms', 'stats': {'avg': .., 'p50': .., ...}}   # stat-bearing
 #     {'name': 'Client RPS',   'unit': 'req/s', 'value': 10.0}                        # scalar
-# `stat_options` is the ordered list of stat keys offered in the Stat dropdown and
-# `default_stat` the one shown first; scalar metrics ignore both.
+# `run_label` is the display name (legend override or dir basename) — the canonical run
+# identity used for color, legend chip, trace name, and toggle. `stat_options` is the ordered
+# list of stat keys offered in the Stat dropdown and `default_stat` the one shown first;
+# scalar metrics ignore both. `hover_lines` are appended to every bar's hover for that run.
 
 _PALETTE = ['#4C78A8', '#F58518', '#54A24B', '#E45756', '#72B7B2',
             '#EECA3B', '#B279A2', '#FF9DA6', '#9D755D', '#BAB0AC']
@@ -45,6 +50,33 @@ _THEMES = {
     'light': dict(paper='#ffffff', plot='#ffffff', font='#222222', grid='#dddddd'),
     'dark':  dict(paper='#111418', plot='#111418', font='#e8e8e8', grid='#333a42'),
 }
+
+
+def _unpack(entry):
+    """Normalize a series entry to (label, metrics, hover_lines).
+
+    Accepts (label, metrics) or (label, metrics, hover_lines); hover defaults to []."""
+    if len(entry) == 3:
+        return entry[0], entry[1], entry[2]
+    label, metrics = entry
+    return label, metrics, []
+
+
+def _hover_escape(s):
+    """Make an arbitrary metadata key/value safe to embed in a Plotly hovertemplate:
+    HTML-escape it (the hover box renders HTML), then neutralize Plotly's '%{...}' variable
+    token so a value like 'rate=%{x}' shows literally instead of being substituted."""
+    return html.escape(str(s)).replace('%{', '%​{')   # zero-width space breaks the token
+
+
+def _hover_suffix(hover_lines):
+    """Build the trailing hover HTML for a run's per-bar metadata, or '' if none.
+
+    Plotly hovertemplate uses <br> for line breaks. Keys/values are escaped (see _hover_escape)
+    so they render as literal text even though the source is operator-supplied JSON."""
+    if not hover_lines:
+        return ''
+    return '<br>' + '<br>'.join(f'{_hover_escape(k)}: {_hover_escape(v)}' for k, v in hover_lines)
 
 
 def _short(name):
@@ -100,7 +132,7 @@ def make_bar_figure(series_by_run, stat_options, default_stat, title,
     # One subplot per metric (independently scaled), so wildly different magnitudes are
     # each readable instead of sharing one axis.
     metric_order, metric_unit = [], {}
-    for _label, metrics in series_by_run:
+    for _label, metrics, _hover in (_unpack(e) for e in series_by_run):
         for m in metrics:
             if m['name'] not in metric_unit:
                 metric_unit[m['name']] = m['unit']
@@ -133,16 +165,20 @@ def make_bar_figure(series_by_run, stat_options, default_stat, title,
     # Colors come from a shared map (run → color, consistent across both figures); fall back
     # to local palette order if not supplied. The legend is always hidden here — the combined
     # page renders one shared legend under the title.
+    _norm = [_unpack(e) for e in series_by_run]
     if run_color is None:
-        run_color = assign_colors([label for label, _m in series_by_run])
+        run_color = assign_colors([label for label, _m, _h in _norm])
     trace_meta = []
 
     for mi, name in enumerate(metric_order):
         r, c = divmod(mi, cols)
         unit = metric_unit[name]
-        for label, metrics in series_by_run:
+        for label, metrics, hover in _norm:
             metric = next((m for m in metrics if m['name'] == name), None)
             y = _val(metric, default_stat) if metric else None
+            # hover: run name, current value (+ unit), then this run's metadata lines
+            hovertemplate = (f'<b>{label}</b><br>%{{y:.4g}} {unit}'
+                             f'{_hover_suffix(hover)}<extra></extra>')
             fig.add_trace(go.Bar(
                 x=[label],
                 y=[y],
@@ -153,8 +189,7 @@ def make_bar_figure(series_by_run, stat_options, default_stat, title,
                 texttemplate='%{y:.4g}',
                 textposition='outside',
                 cliponaxis=False,
-                # hover shows only the current value (+ unit)
-                hovertemplate=f'%{{y:.4g}} {unit}<extra></extra>',
+                hovertemplate=hovertemplate,
             ), row=r + 1, col=c + 1)
             trace_meta.append((label, metric))
 
@@ -171,7 +206,7 @@ def make_bar_figure(series_by_run, stat_options, default_stat, title,
 
     def _range_for(name, stat):
         vals = []
-        for _label, metrics in series_by_run:
+        for _label, metrics, _hover in _norm:
             metric = next((m for m in metrics if m['name'] == name), None)
             if metric is None:
                 continue
@@ -359,15 +394,20 @@ document.addEventListener('DOMContentLoaded', () => {{
 
     # one shared legend (swatch + run label), directly under the title row. Each chip is
     # clickable: toggles that run's visibility across every figure (see _toggleRun in JS).
+    # The label is HTML-escaped for both the data-run attribute and the visible text — a label
+    # with a quote/<&  would otherwise break out of the attribute or inject markup. The browser
+    # decodes the entities back to the raw string in element.dataset.run, so it still matches
+    # the (JSON-embedded, raw) Plotly trace name the JS toggle compares against.
     legend = ''
     if run_color:
         items = ''.join(
-            f'<span class="lgi" data-run="{label}">'
-            f'<span class="sw" style="background:{c}"></span>{label}</span>'
+            f'<span class="lgi" data-run="{html.escape(label, quote=True)}">'
+            f'<span class="sw" style="background:{html.escape(str(c), quote=True)}"></span>'
+            f'{html.escape(label)}</span>'
             for label, c in run_color.items())
         legend = f'<div class="legend">{items}</div>'
 
-    html = (
+    doc = (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
         f'<title>{page_title}</title>'
         '<style>body{font-family:system-ui,Arial,sans-serif;margin:24px;}'
@@ -389,5 +429,5 @@ document.addEventListener('DOMContentLoaded', () => {{
     )
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     with open(out_path, 'w') as f:
-        f.write(html)
+        f.write(doc)
     return out_path
