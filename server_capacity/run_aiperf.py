@@ -148,7 +148,8 @@ def run_aiperf(factories_file, client_rps, obs_time, num_requests,
         aiperf_args_json: Optional JSON dict string of override/extra aiperf args
         success_threshold: Min acceptable success rate for the pass/fail label (default 0.95)
     """
-    from InferenceBenchmarker.client_capacity.aiperf_extension.payload_factory_to_jsonl import (
+    sys.path.insert(0, _ROOT_DIR)
+    from client_capacity.aiperf_extension.payload_factory_to_jsonl import (
         payload_factory_to_jsonl,
     )
 
@@ -198,8 +199,8 @@ def run_aiperf(factories_file, client_rps, obs_time, num_requests,
     _print_aiperf_results(stats, window, artifact_dir, success_threshold=success_threshold)
 
     if endpoint_config and window:
-        sys.path.insert(0, os.path.dirname(_ROOT_DIR))
-        from InferenceBenchmarker.server_capacity.fetch_server_metrics import fetch_server_metrics
+        sys.path.insert(0, _ROOT_DIR)
+        from server_capacity.fetch_server_metrics import fetch_server_metrics
         fetch_server_metrics(endpoint_config, window[0], window[1])
 
 

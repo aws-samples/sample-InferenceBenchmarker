@@ -11,10 +11,10 @@ if len(sys.argv) != 2:
     print("Usage: find_rps_sample_hw.py <duration_seconds>")
     sys.exit(1)
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import psutil
-from InferenceBenchmarker.client_capacity.client_metrics import sample_client_metrics
+from client_metrics import sample_client_metrics
 
 hw           = sample_client_metrics(duration_seconds=float(sys.argv[1]))
 cpu_count    = psutil.cpu_count(logical=True)
