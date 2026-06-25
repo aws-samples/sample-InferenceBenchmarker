@@ -20,7 +20,8 @@
         ],
         "Period": 60,
         "Lag": 30,
-        "Metrics": ["Invocations", "ModelLatency", "OverheadLatency", "Invocation4XXErrors", "Invocation5XXErrors"],
-        "Statistics": [["Sum"], ["Average"], ["Average"], ["Sum"], ["Sum"]]
+        "Metrics": ["Invocations", "InvocationsPerInstance", "ConcurrentRequestsPerModel", "ModelLatency", "OverheadLatency", "Invocation4XXErrors", "Invocation5XXErrors"],
+        "Statistics": [["Sum"], ["Sum"], ["Average", "Maximum"], ["Average"], ["Average"], ["Sum"], ["Sum"]]
     }
 ]
+

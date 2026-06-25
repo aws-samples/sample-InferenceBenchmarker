@@ -143,16 +143,19 @@ def _invoke():
     exc     = None
     length  = 0
     payload = _get_payload(user_idx)
-    # payload = {'instances': np.random.randn(30, 200, 200).tolist()}
+    
 
     _requests_fired += 1
 
     try:
         # consider using event's thread pool if your invoke calls don't yield co-operatively back to the gevent(locust worker) loop. This will happen if you use a network call that does not get patched by Monkey Patching. Track Target vs Fired RPS.
-        # result = gevent.get_hub().threadpool.spawn(_INVOKE_FN, payload).get() 
+        # result = gevent.get_hub().threadpool.spawn(_INVOKE_FN, payload).get()
         result = _INVOKE_FN(payload)
-        if isinstance(result, dict) and 'Body' in result:
-            length = len(result['Body'].read())
+        # To show response size in locust results (the "Average Content Size" column),
+        # derive a length from your invoke()'s return value here and assign it to `length`
+        # below.
+        # if isinstance(result, dict) and 'Body' in result:
+        #     length = len(result['Body'].read())
     except Exception as e:
         exc = e
 
