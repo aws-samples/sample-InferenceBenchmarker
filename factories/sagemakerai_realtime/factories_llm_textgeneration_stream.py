@@ -83,7 +83,12 @@ def payload_factory():
                     }
                 ],
                 "stream": True,
-                "stream_options": {"include_usage": True}
+                "stream_options": {"include_usage": True},
+                "min_tokens": 4000,
+                "max_tokens": 4000,
+                "temperature": 0.0,
+                "ignore_eos": True,
+
             }
             for input_prompt in test_ds_prompts
         ]
