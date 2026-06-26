@@ -290,6 +290,7 @@ See [client_capacity/README.md](client_capacity/README.md) for usage.
 - [ ] **Hydrate w Examples** – EKS, Hyperpod, EC2, OCP(on-prem) etc. examples. [tracking issues](https://github.com/aws-samples/sample-InferenceBenchmarker/issues)
 - [ ] **Interactive CLI** – Add traces while running benchmarks in the current dry benchmark tool. [tracking issues](https://github.com/aws-samples/sample-InferenceBenchmarker/issues)
 - [ ] **Automatic RPS** – Automate trial and error server rps supported at success threshold when --endpoint-config for hardware telemetry provided. [tracking issue](https://github.com/aws-samples/sample-InferenceBenchmarker/issues/3)
+- [ ] - [ ] **Distribute as a package** – enough said. [tracking issue](https://github.com/aws-samples/sample-InferenceBenchmarker/issues/9)
 - [x] **Plot metadata** – Provide a JSON (inline or file) to set per-run legend names and hover info in plots.
 
 
