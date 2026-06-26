@@ -10,7 +10,7 @@
 
 Model-, platform-, and payload-agnostic load testing and capacity planning for inference endpoints.
 
-* **Guaranteed client RPS** – Customizes and wraps [Locust][locust-url] to pace requests from
+* **Guaranteed client RPS** – Customizes and wraps [`Locust`][locust-url] to pace requests from
   the client so a target **client requests-per-second (RPS)** is sustained with 5-8x throughput-token gains.
 * **Client-side bottleneck diagnostics** – Detects when the client sending requests is the limiting factor.
 * **Any inference endpoint** – Traditional ML, GenAI, or any other HTTPS endpoint.
