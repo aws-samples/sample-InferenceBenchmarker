@@ -10,8 +10,8 @@
 
 Model-, platform-, and payload-agnostic load testing and capacity planning for inference endpoints.
 
-* **Guaranteed client RPS** – Customizes and wraps [Locust][locust-url] to pace requests from
-  the client so a target **client requests-per-second (RPS)** is sustained.
+* **Guaranteed client RPS** – Customizes and wraps [`Locust`][locust-url] to pace requests from
+  the client so a target **client requests-per-second (RPS)** is sustained with 5-8x throughput-token gains.
 * **Client-side bottleneck diagnostics** – Detects when the client sending requests is the limiting factor.
 * **Any inference endpoint** – Traditional ML, GenAI, or any other HTTPS endpoint.
 * **Defined in plain Python** – Endpoint characteristics — invocation logic, payload
@@ -19,7 +19,7 @@ Model-, platform-, and payload-agnostic load testing and capacity planning for i
 * **Configurable server metrics** – Latches to configurable server metrics to correlate
   hardware utilization (or any available metric) — to plan capacity
   management across multiple endpoints, autoscaling, and cost extrapolations.
-* **aiperf integration** – Integrates with NVIDIA [`aiperf`][aiperf-url] for token usage metrics.
+* **aiperf integration** – Integrates with NVIDIA [`aiperf`][aiperf-url] for token usage metrics from client(server can emit metrics enough for locust run only).
 * **Comparison visualizations** – Basic bar-plot reports for comparing configurations side by side.
 
 ### Built With
@@ -290,6 +290,7 @@ See [client_capacity/README.md](client_capacity/README.md) for usage.
 - [ ] **Hydrate w Examples** – EKS, Hyperpod, EC2, OCP(on-prem) etc. examples. [tracking issues](https://github.com/aws-samples/sample-InferenceBenchmarker/issues)
 - [ ] **Interactive CLI** – Add traces while running benchmarks in the current dry benchmark tool. [tracking issues](https://github.com/aws-samples/sample-InferenceBenchmarker/issues)
 - [ ] **Automatic RPS** – Automate trial and error server rps supported at success threshold when --endpoint-config for hardware telemetry provided. [tracking issue](https://github.com/aws-samples/sample-InferenceBenchmarker/issues/3)
+- [ ] **Distribute as a package** – enough said. [tracking issue](https://github.com/aws-samples/sample-InferenceBenchmarker/issues/9)
 - [x] **Plot metadata** – Provide a JSON (inline or file) to set per-run legend names and hover info in plots.
 
 

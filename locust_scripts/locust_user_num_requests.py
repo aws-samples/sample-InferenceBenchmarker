@@ -152,8 +152,12 @@ def _invoke():
 
     try:
         result = _INVOKE_FN(payload)
-        if isinstance(result, dict) and 'Body' in result:
-            length = len(result['Body'].read())
+        # To show response size in locust results (the "Average Content Size" column),
+        # derive a length from your invoke()'s return value here and assign it to `length`
+        # below.
+        # result = _INVOKE_FN(payload)
+        # if isinstance(result, dict) and 'Body' in result:
+        #     length = len(result['Body'].read())
     except Exception as e:
         exc = e
 
