@@ -32,6 +32,8 @@ set -euo pipefail
 ENDPOINT_CONFIG=""
 FACTORIES_FILE=""
 CLIENT_RPS=10
+CLIENT_RPS_SET=0
+CONCURRENCY=0
 OBS_TIME=0
 NUM_REQUESTS=0
 WORKERS=1
@@ -61,7 +63,8 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --endpoint-config)   ENDPOINT_CONFIG="$2";   shift 2 ;;
         --factories-file)    FACTORIES_FILE="$2";    shift 2 ;;
-        --client-rps)        CLIENT_RPS="$2";        shift 2 ;;
+        --client-rps)        CLIENT_RPS="$2"; CLIENT_RPS_SET=1; shift 2 ;;
+        --concurrency)       CONCURRENCY="$2";       shift 2 ;;
         --obs-time)          OBS_TIME="$2";          shift 2 ;;
         --num-requests)      NUM_REQUESTS="$2";      shift 2 ;;
         --workers)           WORKERS="$2";           shift 2 ;;
@@ -127,6 +130,11 @@ if [[ "$AIPERF" -eq 1 || "$AIPERF_ONLY" -eq 1 ]]; then
     fi
 fi
 
+# --concurrency (closed-loop) and --client-rps (open-loop) are mutually exclusive drivers.
+if [[ "$CONCURRENCY" -gt 0 && "$CLIENT_RPS_SET" -eq 1 ]]; then
+    echo "Error: provide only one of --concurrency or --client-rps (they are different load models)"; exit 1
+fi
+
 _dbg() { [[ "$DEBUG" -eq 1 ]] && echo "[$(date '+%H:%M:%S')] [debug] $*" || true; }
 _ts()  { [[ "$DEBUG" -eq 1 ]] && echo "[$(date '+%H:%M:%S')] [debug] $*" || true; }
 
@@ -138,12 +146,26 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
 # ---------------------------------------------------------------------------
-# Derive LOCUST_USERS, RUN_TIME, and LOCUST_TOTAL_REQUESTS from mode:
-#   obs_time only:    users = client_rps * obs_time, run-time = obs_time
-#   num_requests only: users = num_requests, no run-time (stops via LOCUST_TOTAL_REQUESTS)
-#   both:             users = num_requests, run-time = obs_time (whichever hits first)
+# Derive LOCUST_USERS, RUN_TIME from mode. Two load models:
+#
+# CONCURRENCY (closed-loop, --concurrency C): users == C == spawn-rate; each user loops,
+#   so C requests stay in flight. obs_time / num_requests only BOUND the run:
+#     obs_time     -> run-time = obs_time
+#     num_requests -> stop at N completed (LOCUST_TOTAL_REQUESTS), no run-time
+#     both         -> whichever hits first
+#
+# RATE (open-loop, --client-rps R): users are DERIVED and each fires once:
+#     obs_time only:     users = client_rps * obs_time, run-time = obs_time
+#     num_requests only: users = num_requests, stop via LOCUST_TOTAL_REQUESTS
+#     both:              users = num_requests, run-time = obs_time
 # ---------------------------------------------------------------------------
-if [[ "$NUM_REQUESTS" -gt 0 && "$OBS_TIME" -gt 0 ]]; then
+if [[ "$CONCURRENCY" -gt 0 ]]; then
+    if [[ "$NUM_REQUESTS" -le 0 && "$OBS_TIME" -le 0 ]]; then
+        echo "Error: --concurrency requires --obs-time or --num-requests to bound the run"; exit 1
+    fi
+    LOCUST_USERS="$CONCURRENCY"
+    if [[ "$OBS_TIME" -gt 0 ]]; then RUN_TIME="$OBS_TIME"; else RUN_TIME=""; fi
+elif [[ "$NUM_REQUESTS" -gt 0 && "$OBS_TIME" -gt 0 ]]; then
     LOCUST_USERS="$NUM_REQUESTS"
     RUN_TIME="$OBS_TIME"
 elif [[ "$NUM_REQUESTS" -gt 0 ]]; then
@@ -155,6 +177,14 @@ elif [[ "$OBS_TIME" -gt 0 ]]; then
     RUN_TIME="$OBS_TIME"
 else
     echo "Error: at least one of --obs-time or --num-requests is required"; exit 1
+fi
+
+# spawn-rate = concurrency (instant ramp: all C users in one tick) in concurrency mode;
+# = client_rps (the pacing lever) in rate mode.
+if [[ "$CONCURRENCY" -gt 0 ]]; then
+    SPAWN_RATE="$CONCURRENCY"
+else
+    SPAWN_RATE="$CLIENT_RPS"
 fi
 
 _dbg "SCRIPT_DIR=$SCRIPT_DIR"
@@ -176,6 +206,10 @@ CSV_PREFIX="${LOCUST_STATS_DIR}/locust"
 FIND_RPS_LOG="${RUN_DIR}/find_rps.log"
 if [[ -n "$LOCUST_FILE" ]]; then
     LOCUST_USER_SCRIPT="$LOCUST_FILE"
+elif [[ "$CONCURRENCY" -gt 0 && "$NUM_REQUESTS" -gt 0 ]]; then
+    LOCUST_USER_SCRIPT="${ROOT_DIR}/locust_scripts/locust_user_concurrency_num_requests.py"
+elif [[ "$CONCURRENCY" -gt 0 ]]; then
+    LOCUST_USER_SCRIPT="${ROOT_DIR}/locust_scripts/locust_user_concurrency.py"
 elif [[ "$NUM_REQUESTS" -gt 0 ]]; then
     LOCUST_USER_SCRIPT="${ROOT_DIR}/locust_scripts/locust_user_num_requests.py"
 else
@@ -210,7 +244,7 @@ InferenceBenchmarker$([[ "$DEBUG" -eq 1 ]] && echo " [debug] [$(date '+%H:%M:%S'
 ================================================================================
 ${ENDPOINT_CONFIG:+   Endpoint config:    $ENDPOINT_CONFIG
 }${FACTORIES_FILE:+   Factories file:     $FACTORIES_FILE
-}   Client RPS:         $CLIENT_RPS req/s
+}$([[ "$CONCURRENCY" -gt 0 ]] && echo "   Concurrency:        $CONCURRENCY" || echo "   Client RPS:         $CLIENT_RPS req/s")
 ${OBS_TIME:+   Observation time:   ${OBS_TIME}s
 }${NUM_REQUESTS:+   Num requests:       $NUM_REQUESTS
 }   Users:              $LOCUST_USERS
@@ -242,7 +276,7 @@ LOCUST_CMD=(
     locust -f "$LOCUST_USER_SCRIPT"
     --master --headless
     --users          "$LOCUST_USERS"
-    --spawn-rate     "$CLIENT_RPS"
+    --spawn-rate     "$SPAWN_RATE"
     --stop-timeout   0
     --expect-workers "$WORKERS"
     --master-bind-port "$PORT"
@@ -350,8 +384,14 @@ if [[ "$AIPERF" -eq 1 || "$AIPERF_ONLY" -eq 1 ]]; then
         read -r -p "Press return to proceed to aiperf after server has reached acceptable baseline"
     fi
 
+    # pass concurrency as '' in rate mode, or the value in concurrency mode (run_aiperf
+    # then emits --concurrency and drops --request-rate/--arrival-pattern)
+    CONCURRENCY_ARG=""
+    [[ "$CONCURRENCY" -gt 0 ]] && CONCURRENCY_ARG="$CONCURRENCY"
+
     python3 "${SCRIPT_DIR}/run_aiperf.py" \
         "$FACTORIES_FILE" "$CLIENT_RPS" "$OBS_TIME" "$NUM_REQUESTS" \
         "$URL" "$API_KEY" "$RUN_DIR" "$ENDPOINT_CONFIG" "$AIPERF_ARGS" "$SUCCESS_THRESHOLD" \
+        "$CONCURRENCY_ARG" \
         2>&1 | tee -a "$FIND_RPS_LOG"
 fi
