@@ -14,7 +14,22 @@
 # aiperf (optional):
 #   --aiperf       run the wave, pause for confirmation, then run aiperf profile
 #   --aiperf-only  skip the wave, run aiperf profile directly
-#   both require --url and --api-key; --aiperf-args '{"key":"value"}' overrides/adds aiperf flags
+#   both require --url and either --api-key (Bearer auth) or --auth-type sigv4
+#   (AWS SigV4 auth, e.g. for SageMaker/API Gateway). --aws-region/--aws-service
+#   are optional with --auth-type sigv4: standard AWS endpoint hostnames
+#   (runtime.sagemaker.<region>.amazonaws.com, <id>.execute-api.<region>.amazonaws.com)
+#   already encode both, so they're read back out of --url the same way boto3
+#   builds them, unless you pass --aws-region/--aws-service explicitly (needed for
+#   a VPC endpoint or custom domain). Credentials come from the normal boto3 chain.
+#   --aiperf-args '{"key":"value"}' overrides/adds aiperf flags
+#   --workers is mirrored onto aiperf's --workers-max (aiperf's own internal
+#   worker-process count) when explicitly passed — it's otherwise a locust-wave-only
+#   setting and left to aiperf's own default formula.
+#
+#   SageMaker example (SigV4, no --api-key, region/service inferred from --url):
+#     --aiperf-only --url https://runtime.sagemaker.us-east-1.amazonaws.com \
+#     --auth-type sigv4 \
+#     --aiperf-args '{"endpoint": "/endpoints/my-endpoint/invocations-response-stream"}'
 #
 # Output files under .tmp/<timestamp>_benchmark/:
 #   find_rps.log                      — find_rps summary + CloudWatch metrics
@@ -37,6 +52,7 @@ CONCURRENCY=0
 OBS_TIME=0
 NUM_REQUESTS=0
 WORKERS=1
+WORKERS_SET=0
 PORT=5557
 LOCUST_FILE=""
 POSTPROCESS=1
@@ -48,6 +64,9 @@ AIPERF=0
 AIPERF_ONLY=0
 URL=""
 API_KEY=""
+AUTH_TYPE=""
+AWS_REGION=""
+AWS_SERVICE=""
 AIPERF_ARGS=""
 PLOT=0
 PLOT_DIRS=()
@@ -67,7 +86,7 @@ while [[ $# -gt 0 ]]; do
         --concurrency)       CONCURRENCY="$2";       shift 2 ;;
         --obs-time)          OBS_TIME="$2";          shift 2 ;;
         --num-requests)      NUM_REQUESTS="$2";      shift 2 ;;
-        --workers)           WORKERS="$2";           shift 2 ;;
+        --workers)           WORKERS="$2"; WORKERS_SET=1; shift 2 ;;
         --port)              PORT="$2";              shift 2 ;;
         --locust-file)       LOCUST_FILE="$2";       shift 2 ;;
         --no-postprocess)    POSTPROCESS=0;          shift 1 ;;
@@ -79,6 +98,9 @@ while [[ $# -gt 0 ]]; do
         --aiperf-only)       AIPERF_ONLY=1;          shift 1 ;;
         --url)               URL="$2";               shift 2 ;;
         --api-key)           API_KEY="$2";           shift 2 ;;
+        --auth-type)         AUTH_TYPE="$2";         shift 2 ;;
+        --aws-region)        AWS_REGION="$2";        shift 2 ;;
+        --aws-service)       AWS_SERVICE="$2";       shift 2 ;;
         --aiperf-args)       AIPERF_ARGS="$2";       shift 2 ;;
         --plot)
             PLOT=1; shift 1
@@ -123,10 +145,14 @@ if [[ "$AIPERF_ONLY" -ne 1 && -z "$FACTORIES_FILE" && -z "$LOCUST_FILE" ]]; then
     echo "Error: --factories-file is required (or pass a self-contained --locust-file)"; exit 1
 fi
 
-# --aiperf / --aiperf-only require --url and --api-key
+# --aiperf / --aiperf-only require --url and either --api-key (Bearer) or --auth-type
+# (AWS SigV4 — aws-region/aws-service are optional, inferred from --url when omitted).
 if [[ "$AIPERF" -eq 1 || "$AIPERF_ONLY" -eq 1 ]]; then
-    if [[ -z "$URL" || -z "$API_KEY" ]]; then
-        echo "Error: --url and --api-key are required with --aiperf / --aiperf-only"; exit 1
+    if [[ -z "$URL" ]]; then
+        echo "Error: --url is required with --aiperf / --aiperf-only"; exit 1
+    fi
+    if [[ -z "$API_KEY" && -z "$AUTH_TYPE" ]]; then
+        echo "Error: --api-key or --auth-type (e.g. sigv4) is required with --aiperf / --aiperf-only"; exit 1
     fi
 fi
 
@@ -389,9 +415,16 @@ if [[ "$AIPERF" -eq 1 || "$AIPERF_ONLY" -eq 1 ]]; then
     CONCURRENCY_ARG=""
     [[ "$CONCURRENCY" -gt 0 ]] && CONCURRENCY_ARG="$CONCURRENCY"
 
+    # only forward --workers to aiperf when explicitly set — WORKERS defaults to 1
+    # (a locust-wave-only default), so forwarding it unconditionally would silently
+    # cap aiperf's --workers-max to 1 for every existing call that never passes
+    # --workers, instead of leaving aiperf's own default formula in effect.
+    AIPERF_WORKERS_ARG=""
+    [[ "$WORKERS_SET" -eq 1 ]] && AIPERF_WORKERS_ARG="$WORKERS"
+
     python3 "${SCRIPT_DIR}/run_aiperf.py" \
         "$FACTORIES_FILE" "$CLIENT_RPS" "$OBS_TIME" "$NUM_REQUESTS" \
         "$URL" "$API_KEY" "$RUN_DIR" "$ENDPOINT_CONFIG" "$AIPERF_ARGS" "$SUCCESS_THRESHOLD" \
-        "$CONCURRENCY_ARG" \
+        "$CONCURRENCY_ARG" "$AUTH_TYPE" "$AWS_REGION" "$AWS_SERVICE" "$AIPERF_WORKERS_ARG" \
         2>&1 | tee -a "$FIND_RPS_LOG"
 fi
