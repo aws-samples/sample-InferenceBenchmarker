@@ -95,7 +95,7 @@ def _redirect_fds(log_path):
 
 def _build_aiperf_args(client_rps, obs_time, num_requests, url, api_key,
                        input_file, artifact_dir, overrides, concurrency=None,
-                       auth_type='', aws_region='', aws_service=''):
+                       auth_type='', aws_region='', aws_service='', workers=None):
     """Return an ordered dict of {flag: value} for the aiperf command.
 
     value semantics: str/number → '--flag value'; True/'' → bare '--flag';
@@ -112,6 +112,11 @@ def _build_aiperf_args(client_rps, obs_time, num_requests, url, api_key,
                          builds them internally) — see _infer_sigv4_region_and_service.
                          Credentials come from the normal boto3 chain; no flag needed.
       otherwise        → Bearer auth via --api-key, if api_key is non-empty.
+
+    workers: mirrors find_rps.sh's --workers (locust worker *process* count) onto
+      aiperf's own --workers-max (aiperf's internal client worker-process count —
+      unrelated to --concurrency, which is in-flight *request* count), instead of
+      aiperf silently falling back to its own min(concurrency, cpu*0.75-1) default.
     """
     # mapped + fixed defaults (insertion order preserved)
     args = {
@@ -128,6 +133,9 @@ def _build_aiperf_args(client_rps, obs_time, num_requests, url, api_key,
         'streaming':                True,
         'output-artifact-dir':      artifact_dir,
     }
+
+    if workers:
+        args['workers-max'] = str(workers)
 
     if auth_type:
         args['auth-type'] = auth_type
@@ -193,7 +201,7 @@ def _flatten_args(args):
 def run_aiperf(factories_file, client_rps, obs_time, num_requests,
                url, api_key, run_dir, endpoint_config='', aiperf_args_json='',
                success_threshold=0.95, concurrency=None,
-               auth_type='', aws_region='', aws_service=''):
+               auth_type='', aws_region='', aws_service='', workers=None):
     """Generate input JSONL, run aiperf profile, then fetch server metrics.
 
     Args:
@@ -217,6 +225,11 @@ def run_aiperf(factories_file, client_rps, obs_time, num_requests,
                          this is empty (see _infer_sigv4_region_and_service).
         aws_service:     SigV4 service (e.g. 'sagemaker', 'execute-api'). Inferred from
                          --url the same way as aws_region when empty.
+        workers:         find_rps.sh's --workers (locust worker *process* count),
+                         mirrored onto aiperf's --workers-max (aiperf's own internal
+                         worker-process count — distinct from --concurrency, which
+                         controls in-flight request count). None/0 → aiperf's own
+                         default formula.
     """
     sys.path.insert(0, _ROOT_DIR)
     from client_capacity.aiperf_extension.payload_factory_to_jsonl import (
@@ -255,7 +268,7 @@ def run_aiperf(factories_file, client_rps, obs_time, num_requests,
     args = _build_aiperf_args(client_rps, obs_time, num_requests, url, api_key,
                               input_file, artifact_dir, overrides, concurrency=concurrency,
                               auth_type=auth_type, aws_region=aws_region,
-                              aws_service=aws_service)
+                              aws_service=aws_service, workers=workers)
     cmd = ['aiperf', 'profile'] + _flatten_args(args)
 
     console_log = os.path.join(artifact_dir, 'aiperf_console.log')
@@ -373,17 +386,19 @@ def _print_aiperf_results(stats, window, artifact_dir, success_threshold):
 if __name__ == '__main__':
     # argv: factories_file client_rps obs_time num_requests url api_key run_dir
     #       endpoint_config aiperf_args_json success_threshold concurrency
-    #       auth_type aws_region aws_service
-    # All 14 are positional. factories_file may be empty ('') when an --input-file
+    #       auth_type aws_region aws_service workers
+    # All 15 are positional. factories_file may be empty ('') when an --input-file
     # is supplied via aiperf_args_json; pass '' to hold the position. concurrency is ''
     # for open-loop rate mode, or an integer for closed-loop concurrency mode.
     # auth_type/aws_region/aws_service are '' for Bearer (--api-key) auth; when
     # auth_type is set, aws_region/aws_service may also be '' to infer from --url.
-    if len(sys.argv) != 15:
+    # workers is '' to let aiperf pick its own default, or an integer to mirror
+    # find_rps.sh's --workers onto aiperf's --workers-max.
+    if len(sys.argv) != 16:
         print("Usage: run_aiperf.py <factories_file|''> <client_rps> <obs_time> "
               "<num_requests> <url> <api_key> <run_dir> <endpoint_config> "
               "<aiperf_args_json> <success_threshold> <concurrency|''> "
-              "<auth_type|''> <aws_region|''> <aws_service|''>")
+              "<auth_type|''> <aws_region|''> <aws_service|''> <workers|''>")
         sys.exit(1)
 
     sys.path.insert(0, os.path.dirname(_ROOT_DIR))
@@ -403,4 +418,5 @@ if __name__ == '__main__':
         auth_type         = sys.argv[12],
         aws_region        = sys.argv[13],
         aws_service       = sys.argv[14],
+        workers           = int(sys.argv[15]) if sys.argv[15] else None,
     )

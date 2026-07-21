@@ -22,6 +22,9 @@
 #   builds them, unless you pass --aws-region/--aws-service explicitly (needed for
 #   a VPC endpoint or custom domain). Credentials come from the normal boto3 chain.
 #   --aiperf-args '{"key":"value"}' overrides/adds aiperf flags
+#   --workers is mirrored onto aiperf's --workers-max (aiperf's own internal
+#   worker-process count) when explicitly passed — it's otherwise a locust-wave-only
+#   setting and left to aiperf's own default formula.
 #
 #   SageMaker example (SigV4, no --api-key, region/service inferred from --url):
 #     --aiperf-only --url https://runtime.sagemaker.us-east-1.amazonaws.com \
@@ -49,6 +52,7 @@ CONCURRENCY=0
 OBS_TIME=0
 NUM_REQUESTS=0
 WORKERS=1
+WORKERS_SET=0
 PORT=5557
 LOCUST_FILE=""
 POSTPROCESS=1
@@ -82,7 +86,7 @@ while [[ $# -gt 0 ]]; do
         --concurrency)       CONCURRENCY="$2";       shift 2 ;;
         --obs-time)          OBS_TIME="$2";          shift 2 ;;
         --num-requests)      NUM_REQUESTS="$2";      shift 2 ;;
-        --workers)           WORKERS="$2";           shift 2 ;;
+        --workers)           WORKERS="$2"; WORKERS_SET=1; shift 2 ;;
         --port)              PORT="$2";              shift 2 ;;
         --locust-file)       LOCUST_FILE="$2";       shift 2 ;;
         --no-postprocess)    POSTPROCESS=0;          shift 1 ;;
@@ -411,9 +415,16 @@ if [[ "$AIPERF" -eq 1 || "$AIPERF_ONLY" -eq 1 ]]; then
     CONCURRENCY_ARG=""
     [[ "$CONCURRENCY" -gt 0 ]] && CONCURRENCY_ARG="$CONCURRENCY"
 
+    # only forward --workers to aiperf when explicitly set — WORKERS defaults to 1
+    # (a locust-wave-only default), so forwarding it unconditionally would silently
+    # cap aiperf's --workers-max to 1 for every existing call that never passes
+    # --workers, instead of leaving aiperf's own default formula in effect.
+    AIPERF_WORKERS_ARG=""
+    [[ "$WORKERS_SET" -eq 1 ]] && AIPERF_WORKERS_ARG="$WORKERS"
+
     python3 "${SCRIPT_DIR}/run_aiperf.py" \
         "$FACTORIES_FILE" "$CLIENT_RPS" "$OBS_TIME" "$NUM_REQUESTS" \
         "$URL" "$API_KEY" "$RUN_DIR" "$ENDPOINT_CONFIG" "$AIPERF_ARGS" "$SUCCESS_THRESHOLD" \
-        "$CONCURRENCY_ARG" "$AUTH_TYPE" "$AWS_REGION" "$AWS_SERVICE" \
+        "$CONCURRENCY_ARG" "$AUTH_TYPE" "$AWS_REGION" "$AWS_SERVICE" "$AIPERF_WORKERS_ARG" \
         2>&1 | tee -a "$FIND_RPS_LOG"
 fi
