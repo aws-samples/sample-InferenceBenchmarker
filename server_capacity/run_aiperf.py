@@ -40,8 +40,33 @@ import contextlib
 import json
 import math
 import os
+import re
 import subprocess
 import sys
+
+
+# Standard AWS regional endpoint hostnames already encode both the service and
+# the region (that's how boto3 builds these same URLs internally from a
+# `boto3.client('sagemaker-runtime', region_name=...)` call) — so SigV4
+# --aws-region/--aws-service can be read back out of --url the same way,
+# instead of requiring the caller to pass them separately. Only used as a
+# fallback when the caller didn't pass --aws-region/--aws-service explicitly
+# (e.g. a VPC endpoint or custom domain, which doesn't match either pattern).
+_AWS_SIGV4_URL_PATTERNS = (
+    # https://runtime.sagemaker.<region>.amazonaws.com
+    (re.compile(r"^https?://runtime\.sagemaker\.([a-z0-9-]+)\.amazonaws\.com"), "sagemaker"),
+    # https://<api-id>.execute-api.<region>.amazonaws.com
+    (re.compile(r"^https?://[^./]+\.execute-api\.([a-z0-9-]+)\.amazonaws\.com"), "execute-api"),
+)
+
+
+def _infer_sigv4_region_and_service(url):
+    """Infer (region, service) from a standard AWS endpoint URL, or (None, None)."""
+    for pattern, service in _AWS_SIGV4_URL_PATTERNS:
+        m = pattern.match(url)
+        if m:
+            return m.group(1), service
+    return None, None
 
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -69,7 +94,8 @@ def _redirect_fds(log_path):
 
 
 def _build_aiperf_args(client_rps, obs_time, num_requests, url, api_key,
-                       input_file, artifact_dir, overrides, concurrency=None):
+                       input_file, artifact_dir, overrides, concurrency=None,
+                       auth_type='', aws_region='', aws_service=''):
     """Return an ordered dict of {flag: value} for the aiperf command.
 
     value semantics: str/number → '--flag value'; True/'' → bare '--flag';
@@ -78,6 +104,14 @@ def _build_aiperf_args(client_rps, obs_time, num_requests, url, api_key,
     Load model (mutually exclusive, matching find_rps.sh):
       concurrency given → closed-loop: emit --concurrency, omit --request-rate/--arrival-pattern.
       otherwise         → open-loop rate: emit --request-rate + --arrival-pattern constant.
+
+    Auth (mutually exclusive):
+      auth_type set    → AWS SigV4 (e.g. SageMaker, API Gateway). aws_region/aws_service
+                         are read from --url when not passed explicitly (standard AWS
+                         regional endpoint hostnames encode both, the same way boto3
+                         builds them internally) — see _infer_sigv4_region_and_service.
+                         Credentials come from the normal boto3 chain; no flag needed.
+      otherwise        → Bearer auth via --api-key, if api_key is non-empty.
     """
     # mapped + fixed defaults (insertion order preserved)
     args = {
@@ -92,9 +126,26 @@ def _build_aiperf_args(client_rps, obs_time, num_requests, url, api_key,
         'custom-dataset-type':      'raw_payload',
         'dataset-sampling-strategy': 'sequential',
         'streaming':                True,
-        'api-key':                  api_key,
         'output-artifact-dir':      artifact_dir,
     }
+
+    if auth_type:
+        args['auth-type'] = auth_type
+        if not aws_region or not aws_service:
+            inferred_region, inferred_service = _infer_sigv4_region_and_service(url)
+            aws_region = aws_region or inferred_region
+            aws_service = aws_service or inferred_service
+        if not aws_region or not aws_service:
+            raise ValueError(
+                f"--auth-type {auth_type} needs --aws-region and --aws-service: "
+                f"couldn't infer them from --url {url!r} (only standard "
+                "runtime.sagemaker.<region>.amazonaws.com / "
+                "<id>.execute-api.<region>.amazonaws.com hostnames are recognized)."
+            )
+        args['aws-region'] = aws_region
+        args['aws-service'] = aws_service
+    elif api_key:
+        args['api-key'] = api_key
 
     if concurrency is not None:
         # closed-loop: C requests in flight; no rate pacing.
@@ -141,7 +192,8 @@ def _flatten_args(args):
 
 def run_aiperf(factories_file, client_rps, obs_time, num_requests,
                url, api_key, run_dir, endpoint_config='', aiperf_args_json='',
-               success_threshold=0.95, concurrency=None):
+               success_threshold=0.95, concurrency=None,
+               auth_type='', aws_region='', aws_service=''):
     """Generate input JSONL, run aiperf profile, then fetch server metrics.
 
     Args:
@@ -152,13 +204,19 @@ def run_aiperf(factories_file, client_rps, obs_time, num_requests,
         obs_time:        Observation seconds (0 if not provided)
         num_requests:    Total requests (0 if not provided)
         url:             Endpoint base URL
-        api_key:         Endpoint API key
+        api_key:         Endpoint API key (Bearer auth). Ignored when auth_type is set.
         run_dir:         Wave output dir; aiperf artifacts land in <run_dir>/aiperf
         endpoint_config: Optional path to server metrics config (CloudWatch)
         aiperf_args_json: Optional JSON dict string of override/extra aiperf args
         success_threshold: Min acceptable success rate for the pass/fail label (default 0.95)
         concurrency:     Closed-loop concurrency (--concurrency). When set, replaces
                          --request-rate/--arrival-pattern. None → open-loop rate mode.
+        auth_type:       AWS SigV4 auth (e.g. 'sigv4') instead of --api-key Bearer auth.
+                         Needed for SageMaker/API Gateway endpoints. Empty → Bearer auth.
+        aws_region:      SigV4 region. Inferred from --url when auth_type is set and
+                         this is empty (see _infer_sigv4_region_and_service).
+        aws_service:     SigV4 service (e.g. 'sagemaker', 'execute-api'). Inferred from
+                         --url the same way as aws_region when empty.
     """
     sys.path.insert(0, _ROOT_DIR)
     from client_capacity.aiperf_extension.payload_factory_to_jsonl import (
@@ -195,7 +253,9 @@ def run_aiperf(factories_file, client_rps, obs_time, num_requests,
 
     # 3. build + run the aiperf command — console output to a log file, not the terminal
     args = _build_aiperf_args(client_rps, obs_time, num_requests, url, api_key,
-                              input_file, artifact_dir, overrides, concurrency=concurrency)
+                              input_file, artifact_dir, overrides, concurrency=concurrency,
+                              auth_type=auth_type, aws_region=aws_region,
+                              aws_service=aws_service)
     cmd = ['aiperf', 'profile'] + _flatten_args(args)
 
     console_log = os.path.join(artifact_dir, 'aiperf_console.log')
@@ -221,7 +281,6 @@ def _parse_aiperf_log(artifact_dir):
 
     Returns dict with completed, cancelled, errors, success, or None if not found.
     """
-    import re
     log_path = os.path.join(artifact_dir, 'logs', 'aiperf.log')
     if not os.path.exists(log_path):
         print(f"   ⚠️ aiperf log not found ({log_path}) — request counts unavailable")
@@ -314,13 +373,17 @@ def _print_aiperf_results(stats, window, artifact_dir, success_threshold):
 if __name__ == '__main__':
     # argv: factories_file client_rps obs_time num_requests url api_key run_dir
     #       endpoint_config aiperf_args_json success_threshold concurrency
-    # All 11 are positional. factories_file may be empty ('') when an --input-file
+    #       auth_type aws_region aws_service
+    # All 14 are positional. factories_file may be empty ('') when an --input-file
     # is supplied via aiperf_args_json; pass '' to hold the position. concurrency is ''
     # for open-loop rate mode, or an integer for closed-loop concurrency mode.
-    if len(sys.argv) != 12:
+    # auth_type/aws_region/aws_service are '' for Bearer (--api-key) auth; when
+    # auth_type is set, aws_region/aws_service may also be '' to infer from --url.
+    if len(sys.argv) != 15:
         print("Usage: run_aiperf.py <factories_file|''> <client_rps> <obs_time> "
               "<num_requests> <url> <api_key> <run_dir> <endpoint_config> "
-              "<aiperf_args_json> <success_threshold> <concurrency|''>")
+              "<aiperf_args_json> <success_threshold> <concurrency|''> "
+              "<auth_type|''> <aws_region|''> <aws_service|''>")
         sys.exit(1)
 
     sys.path.insert(0, os.path.dirname(_ROOT_DIR))
@@ -337,4 +400,7 @@ if __name__ == '__main__':
         aiperf_args_json  = sys.argv[9],
         success_threshold = float(sys.argv[10]),
         concurrency       = int(sys.argv[11]) if sys.argv[11] else None,
+        auth_type         = sys.argv[12],
+        aws_region        = sys.argv[13],
+        aws_service       = sys.argv[14],
     )
