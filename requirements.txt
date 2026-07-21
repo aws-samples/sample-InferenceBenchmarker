@@ -6,6 +6,6 @@ urllib3==2.7.0
 cloudpickle==3.1.2
 psutil==7.0.0
 numpy==2.4.4
-aiperf==0.9.0
+aiperf @ git+https://github.com/ai-dynamo/aiperf.git@ba06dcf1a49575b1c053a8c4d8f445a0c5576c75
 pandas==2.3.3
 datasets
