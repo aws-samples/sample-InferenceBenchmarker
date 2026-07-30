@@ -8,6 +8,9 @@ Environment variables:
     FACTORIES_PATH : path to the cloudpickle file containing invoke_factory and payload_factory
                      (read by locust_user.py when the worker imports it)
     WORKER_INDEX   : worker number (1-based) used to name the requests_fired output file
+                     and as this worker's offset into a pre_computed payload list
+    BENCHMARKER_WORKER_COUNT : total worker count — the stride between consecutive payload
+                     indices, so workers cover disjoint slices of a pre_computed list
 """
 
 import os

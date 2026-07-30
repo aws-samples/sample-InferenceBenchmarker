@@ -262,6 +262,10 @@ export LOCUST_WAVE_DIR="$REQUESTS_FIRED_DIR"
 export PYTHONPATH="${ROOT_DIR}/..:${PYTHONPATH:-}"
 export BENCHMARKER_SAMPLE_HW="$SAMPLE_HW"
 export LOCUST_TOTAL_REQUESTS="$NUM_REQUESTS"
+# worker count for payload sharding — with WORKER_INDEX, lets each worker stride a
+# disjoint slice of a pre_computed payload list (BENCHMARKER_* to dodge locust's
+# LOCUST_*→CLI env mapping)
+export BENCHMARKER_WORKER_COUNT="$WORKERS"
 
 # ===========================================================================
 # WAVE — run find_rps (skipped entirely for --aiperf-only)

@@ -11,6 +11,9 @@ FACTORIES_PATH points to a cloudpickle file written by:
 
 payload_factory protocol — always returns:
     {'pre_computed': True,  'input': List[Any]}   — each request gets one item by index;
+                                                     workers stride the list disjointly
+                                                     (offset WORKER_INDEX-1, step
+                                                     BENCHMARKER_WORKER_COUNT);
                                                      cycles across requests
     {'pre_computed': False, 'input': Callable}    —  input() called per request
 """
@@ -38,6 +41,12 @@ _INVOKE_FN = None if '--master' in sys.argv else _invoke_factory()
 _payload_config = _payload_factory()
 _pre_computed   = _payload_config['pre_computed']
 _payload_input  = _payload_config['input']   # List when pre_computed, callable otherwise
+
+# Worker-strided payload sharding: worker w (0-based) fires indices w, w+W, w+2W, ...
+# so workers cover disjoint slices of a pre_computed list instead of all replaying the
+# same prefix. Defaults (count 1 -> offset 0) preserve the old single-sequence behavior.
+_WORKER_COUNT  = int(os.environ.get('BENCHMARKER_WORKER_COUNT', '1'))
+_WORKER_OFFSET = (int(os.environ.get('WORKER_INDEX', '1')) - 1) % _WORKER_COUNT
 
 _requests_fired = 0
 _user_index     = -1   # incremented per request; gevent cooperative — no lock needed
@@ -119,7 +128,7 @@ def on_quitting(environment, **kwargs):
 def _get_payload(user_idx):
     if not _pre_computed:
         return _payload_input()
-    return _payload_input[user_idx % len(_payload_input)]
+    return _payload_input[(_WORKER_OFFSET + user_idx * _WORKER_COUNT) % len(_payload_input)]
 
 
 def _invoke():
