@@ -1,19 +1,20 @@
-"""Locust user definition for num_requests mode.
+"""Locust user definition for concurrency mode.
 
-Same as locust_user.py except the test stops when LOCUST_TOTAL_REQUESTS is reached
-(checked on the worker after each events.request.fire() call, no polling lag).
+Same as locust_user.py except each user loops (wait_time = constant(0)) instead of firing
+once, so a fixed user count == a fixed number of concurrent in-flight requests. Bounded by
+--run-time (obs-time); used when --concurrency is given without --num-requests.
 
-Loaded by locust_primary.py and locust_worker.py when find_rps.sh is invoked with
---num-requests. FACTORIES_PATH points to a cloudpickle file written by:
+Loaded by locust_primary.py and locust_worker.py for each benchmark wave.
+FACTORIES_PATH points to a cloudpickle file written by:
   - server_capacity/_find_rps_serialize.py  (find_rps.sh path)
+  - client_capacity/_burst.py               (find_worker_saturation / find_rps_saturation path)
 
 payload_factory protocol — always returns:
-    {'pre_computed': True,  'input': List[Any]}   — each user gets one item by index;
+    {'pre_computed': True,  'input': List[Any]}   — each request gets one item by index;
                                                      workers stride the list disjointly
                                                      (offset WORKER_INDEX-1, step
                                                      BENCHMARKER_WORKER_COUNT);
-                                                     cycles if users > len(input),
-                                                     warns if users < len(input)
+                                                     cycles across requests
     {'pre_computed': False, 'input': Callable}    —  input() called per request
 """
 
@@ -22,9 +23,12 @@ import sys
 import time
 import threading
 
+import gevent
+
 import cloudpickle
 import psutil
 from locust import FastHttpUser, constant, events, task
+import numpy as np
 
 with open(os.environ['FACTORIES_PATH'], 'rb') as _f:
     _factories = cloudpickle.load(_f)
@@ -36,7 +40,7 @@ _INVOKE_FN = None if '--master' in sys.argv else _invoke_factory()
 
 _payload_config = _payload_factory()
 _pre_computed   = _payload_config['pre_computed']
-_payload_input  = _payload_config['input']
+_payload_input  = _payload_config['input']   # List when pre_computed, callable otherwise
 
 # Worker-strided payload sharding: worker w (0-based) fires indices w, w+W, w+2W, ...
 # so workers cover disjoint slices of a pre_computed list instead of all replaying the
@@ -44,24 +48,8 @@ _payload_input  = _payload_config['input']
 _WORKER_COUNT  = int(os.environ.get('BENCHMARKER_WORKER_COUNT', '1'))
 _WORKER_OFFSET = (int(os.environ.get('WORKER_INDEX', '1')) - 1) % _WORKER_COUNT
 
-_requests_fired  = 0
-_user_index      = -1
-_TOTAL_REQUESTS  = int(os.environ.get('LOCUST_TOTAL_REQUESTS', '0'))
-_env             = None
-
-
-@events.init.add_listener
-def on_init(environment, **kwargs):
-    global _env
-    _env = environment
-
-
-# fires on master each time a worker reports stats (every WORKER_REPORT_INTERVAL=3s)
-@events.worker_report.add_listener
-def on_worker_report(client_id, data, **kwargs):
-    if _env and _env.stats.total.num_requests >= _TOTAL_REQUESTS:
-        _env.runner.quit()
-
+_requests_fired = 0
+_user_index     = -1   # incremented per request; gevent cooperative — no lock needed
 
 # ---------------------------------------------------------------------------
 # Client hardware sampling — only on master when BENCHMARKER_SAMPLE_HW=1
@@ -74,7 +62,7 @@ _hw_thread   = None
 
 
 def _hw_sample_loop():
-    psutil.cpu_percent(interval=None)
+    psutil.cpu_percent(interval=None)  # discard first call to initialize delta
     while not _hw_stop.is_set():
         _cpu_samples.append(psutil.cpu_percent(interval=None))
         _mem_samples.append(psutil.virtual_memory().percent)
@@ -90,9 +78,7 @@ def on_spawning_complete(user_count, **kwargs):
     if _pre_computed:
         n = len(_payload_input)
         if user_count > n:
-            print(f"   [locust_user] Warning: {user_count} users > {n} pre_computed inputs — cycling through list")
-        elif user_count < n:
-            print(f"   [locust_user] Warning: {n - user_count} pre_computed inputs unused ({n} inputs, {user_count} users)")
+            print(f"   [locust_user] Note: concurrency {user_count} > {n} pre_computed inputs — inputs cycle across requests")
 
 
 @events.quitting.add_listener
@@ -116,9 +102,6 @@ def on_quitting(environment, **kwargs):
     if '--master' in sys.argv:
         # write raw start/last-request epochs (TZ-safe) for postprocess (wave time + RPS)
         # and fetch_server_metrics (CloudWatch query window).
-        # TODO: start_time is set when MasterRunner.start() runs (before workers connect/spawn),
-        # so it includes worker-connect + user-spawn ramp. Pass --reset-stats in find_rps.sh to
-        # reset start_time on spawning_complete and exclude the ramp.
         run_dir = os.path.dirname(wave_dir)  # LOCUST_WAVE_DIR is RUN_DIR/requests_fired
         wave_window_path = os.path.join(run_dir, 'wave_window.txt')
         start = environment.stats.total.start_time
@@ -164,16 +147,15 @@ def _invoke():
         # To show response size in locust results (the "Average Content Size" column),
         # derive a length from your invoke()'s return value here and assign it to `length`
         # below.
-        # result = _INVOKE_FN(payload)
         # if isinstance(result, dict) and 'Body' in result:
         #     length = len(result['Body'].read())
     except Exception as e:
         exc = e
 
     events.request.fire(
-        request_type='boto3',
-        name=os.environ.get('ENDPOINT_NAME', 'endpoint'),
-        response_time=(time.monotonic() - start) * 1000,
+        request_type='boto3',  # feed into locust_stats.csv
+        name=os.environ.get('ENDPOINT_NAME', 'endpoint'), # feed into locust_stats.csv
+        response_time=(time.monotonic() - start) * 1000,  # feed into locust_stats_history.csv for latency stats
         response_length=length,
         exception=exc,
         context={},
@@ -182,7 +164,9 @@ def _invoke():
 
 class InferenceBenchmarker(FastHttpUser):
     host = 'https://amazonaws.com'
-    wait_time = constant(float('inf'))
+    # Concurrency mode: fire → wait for completion → fire again immediately. constant(0)
+    # keeps exactly --users (= C) requests in flight for the whole wave (bounded by --run-time).
+    wait_time = constant(0)
 
     @task
     def invoke_endpoint(self):

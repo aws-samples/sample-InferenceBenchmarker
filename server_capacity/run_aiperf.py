@@ -69,11 +69,15 @@ def _redirect_fds(log_path):
 
 
 def _build_aiperf_args(client_rps, obs_time, num_requests, url, api_key,
-                       input_file, artifact_dir, overrides):
+                       input_file, artifact_dir, overrides, concurrency=None):
     """Return an ordered dict of {flag: value} for the aiperf command.
 
     value semantics: str/number → '--flag value'; True/'' → bare '--flag';
     False → omitted; list → repeated flag.
+
+    Load model (mutually exclusive, matching find_rps.sh):
+      concurrency given → closed-loop: emit --concurrency, omit --request-rate/--arrival-pattern.
+      otherwise         → open-loop rate: emit --request-rate + --arrival-pattern constant.
     """
     # mapped + fixed defaults (insertion order preserved)
     args = {
@@ -86,18 +90,24 @@ def _build_aiperf_args(client_rps, obs_time, num_requests, url, api_key,
         'endpoint-type':            'chat',
         'input-file':               input_file,
         'custom-dataset-type':      'raw_payload',
-        'request-rate':             str(client_rps),
-        'arrival-pattern':          'constant',
         'dataset-sampling-strategy': 'sequential',
         'streaming':                True,
         'api-key':                  api_key,
         'output-artifact-dir':      artifact_dir,
     }
 
-    # request-count: obs_time-only → ceil(obs_time*client_rps); else num_requests
+    if concurrency is not None:
+        # closed-loop: C requests in flight; no rate pacing.
+        args['concurrency'] = str(concurrency)
+    else:
+        # open-loop: pace arrivals at client_rps with constant inter-arrival time.
+        args['request-rate']    = str(client_rps)
+        args['arrival-pattern'] = 'constant'
+
+    # request-count: num_requests wins; else obs_time-only rate mode → ceil(obs_time*client_rps)
     if num_requests > 0:
         args['request-count'] = str(num_requests)
-    elif obs_time > 0:
+    elif obs_time > 0 and concurrency is None:
         args['request-count'] = str(math.ceil(obs_time * client_rps))
 
     # benchmark-duration: only when obs_time provided (omit for num_requests-only)
@@ -131,14 +141,14 @@ def _flatten_args(args):
 
 def run_aiperf(factories_file, client_rps, obs_time, num_requests,
                url, api_key, run_dir, endpoint_config='', aiperf_args_json='',
-               success_threshold=0.95):
+               success_threshold=0.95, concurrency=None):
     """Generate input JSONL, run aiperf profile, then fetch server metrics.
 
     Args:
         factories_file:  Path to factories .py exposing payload_factory. Optional
                          when --input-file is supplied via --aiperf-args (then the
                          input JSONL is used verbatim and no factory is needed).
-        client_rps:      Target request rate (--request-rate)
+        client_rps:      Target request rate (--request-rate), open-loop mode
         obs_time:        Observation seconds (0 if not provided)
         num_requests:    Total requests (0 if not provided)
         url:             Endpoint base URL
@@ -147,6 +157,8 @@ def run_aiperf(factories_file, client_rps, obs_time, num_requests,
         endpoint_config: Optional path to server metrics config (CloudWatch)
         aiperf_args_json: Optional JSON dict string of override/extra aiperf args
         success_threshold: Min acceptable success rate for the pass/fail label (default 0.95)
+        concurrency:     Closed-loop concurrency (--concurrency). When set, replaces
+                         --request-rate/--arrival-pattern. None → open-loop rate mode.
     """
     sys.path.insert(0, _ROOT_DIR)
     from client_capacity.aiperf_extension.payload_factory_to_jsonl import (
@@ -183,7 +195,7 @@ def run_aiperf(factories_file, client_rps, obs_time, num_requests,
 
     # 3. build + run the aiperf command — console output to a log file, not the terminal
     args = _build_aiperf_args(client_rps, obs_time, num_requests, url, api_key,
-                              input_file, artifact_dir, overrides)
+                              input_file, artifact_dir, overrides, concurrency=concurrency)
     cmd = ['aiperf', 'profile'] + _flatten_args(args)
 
     console_log = os.path.join(artifact_dir, 'aiperf_console.log')
@@ -301,13 +313,14 @@ def _print_aiperf_results(stats, window, artifact_dir, success_threshold):
 
 if __name__ == '__main__':
     # argv: factories_file client_rps obs_time num_requests url api_key run_dir
-    #       endpoint_config aiperf_args_json success_threshold
-    # All 10 are positional. factories_file may be empty ('') when an --input-file
-    # is supplied via aiperf_args_json; pass '' to hold the position.
-    if len(sys.argv) != 11:
+    #       endpoint_config aiperf_args_json success_threshold concurrency
+    # All 11 are positional. factories_file may be empty ('') when an --input-file
+    # is supplied via aiperf_args_json; pass '' to hold the position. concurrency is ''
+    # for open-loop rate mode, or an integer for closed-loop concurrency mode.
+    if len(sys.argv) != 12:
         print("Usage: run_aiperf.py <factories_file|''> <client_rps> <obs_time> "
               "<num_requests> <url> <api_key> <run_dir> <endpoint_config> "
-              "<aiperf_args_json> <success_threshold>")
+              "<aiperf_args_json> <success_threshold> <concurrency|''>")
         sys.exit(1)
 
     sys.path.insert(0, os.path.dirname(_ROOT_DIR))
@@ -323,4 +336,5 @@ if __name__ == '__main__':
         endpoint_config   = sys.argv[8],
         aiperf_args_json  = sys.argv[9],
         success_threshold = float(sys.argv[10]),
+        concurrency       = int(sys.argv[11]) if sys.argv[11] else None,
     )

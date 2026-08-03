@@ -11,7 +11,9 @@
 Model-, platform-, and payload-agnostic load testing and capacity planning for inference endpoints.
 
 * **Guaranteed client RPS** – Customizes and wraps [`Locust`][locust-url] to pace requests from
-  the client so a target **client requests-per-second (RPS)** is sustained with 5-8x throughput-token gains.
+  the client so a target **client requests-per-second (RPS)** is sustained.
+* **Fixed concurrency** – Traditional closed-loop mode holds an exact number of **concurrent in-flight
+  requests**.
 * **Client-side bottleneck diagnostics** – Detects when the client sending requests is the limiting factor.
 * **Any inference endpoint** – Traditional ML, GenAI, or any other HTTPS endpoint.
 * **Defined in plain Python** – Endpoint characteristics — invocation logic, payload
@@ -96,7 +98,7 @@ InferenceBenchmarker takes your invocation logic defined in Python functions in 
             'input': [{'instances': [[...]]}],   # list[Payload]
         }
     ```
-    Requests cycle through the pre-computed inputs in order and wrap back to the start, so the list is never exhausted or cut off — fire more requests than there are inputs and it simply loops.
+    Requests consume the pre-computed inputs in order and wrap back to the start, so the list is never exhausted or cut off — fire more requests than there are inputs and it simply loops.
 
     **`pre_computed=False`** — payload built per user request by returning a Python callable that is called on each inference request. payload-build cost **is** included. Use this mode to introduce dynamism in payload_generation and if maintaining a pre-computed payload is heavy on memory causing memory to be a client bottleneck. Might cause higher compute usage during benchmarking:
 
@@ -234,7 +236,8 @@ above is rendered with this metadata.
 ```
 --factories-file FILE     Python file exposing invoke_factory / payload_factory (required for a wave)
 --endpoint-config FILE    enables server telemetry, purposed for hardware utilization
---client-rps R            Target requests per second R to send from client
+--client-rps R            Target requests per second R to send from client (open-loop)
+--concurrency C           Hold exactly C requests in flight (closed-loop; alternative to --client-rps)
 --obs-time S              Run a wave with client-rps for S seconds
 --num-requests N          Run a wave with N requests, behavior with --obs-time refer Bounding a wave section
 --workers N               N Locust worker processes (default 1; ~1 per available core is recommend)
@@ -292,6 +295,7 @@ See [client_capacity/README.md](client_capacity/README.md) for usage.
 - [ ] **Automatic RPS** – Automate trial and error server rps supported at success threshold when --endpoint-config for hardware telemetry provided. [tracking issue](https://github.com/aws-samples/sample-InferenceBenchmarker/issues/3)
 - [ ] **Distribute as a package** – enough said. [tracking issue](https://github.com/aws-samples/sample-InferenceBenchmarker/issues/9)
 - [x] **Plot metadata** – Provide a JSON (inline or file) to set per-run legend names and hover info in plots.
+- [x] **Concurrency mode** – Closed-loop `--concurrency C` holds exactly C requests in flight.
 
 
 <!-- SECURITY -->
