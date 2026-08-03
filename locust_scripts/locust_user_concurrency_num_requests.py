@@ -1,8 +1,13 @@
 """Locust user definition for concurrency + num_requests mode.
 
 Same as locust_user_num_requests.py except each user loops (wait_time = constant(0)) instead
-of firing once, so a fixed user count == a fixed number of concurrent in-flight requests. The
-test stops when LOCUST_TOTAL_REQUESTS is reached (checked on the worker_report event).
+of firing once, so a fixed user count == a fixed number of concurrent in-flight requests.
+
+Exactly LOCUST_TOTAL_REQUESTS requests are fired fleet-wide: each worker stops firing once
+its share (quota) of the total has been started, then the master's worker_report check
+terminates the run when all completions are reported. If a request hangs or a worker dies,
+completions never reach the target and the master won't quit on its own — pair
+--num-requests with --obs-time to bound the run.
 
 Loaded by locust_primary.py and locust_worker.py when find_rps.sh is invoked with
 --concurrency and --num-requests. FACTORIES_PATH points to a cloudpickle file written by:
@@ -21,6 +26,8 @@ import os
 import sys
 import time
 import threading
+
+import gevent
 
 import cloudpickle
 import psutil
@@ -48,6 +55,15 @@ _requests_fired  = 0
 _user_index      = -1
 _TOTAL_REQUESTS  = int(os.environ.get('LOCUST_TOTAL_REQUESTS', '0'))
 _env             = None
+
+# Per-worker fire budget: base share + one extra for the first N % W workers, summing to
+# exactly _TOTAL_REQUESTS. Firing stops at the worker the moment its budget of requests has
+# been started, eliminating the overshoot from the master's ~3s worker_report stop check
+# (which remains as run termination). Each budget equals the size of the worker's stride
+# slice within the first N payloads, so the fleet fires payloads 0..N-1 exactly once.
+_QUOTA = None
+if _TOTAL_REQUESTS > 0:
+    _QUOTA = _TOTAL_REQUESTS // _WORKER_COUNT + (1 if _WORKER_OFFSET < _TOTAL_REQUESTS % _WORKER_COUNT else 0)
 
 
 @events.init.add_listener
@@ -147,12 +163,14 @@ def _invoke():
     global _requests_fired, _user_index
     _user_index += 1
     user_idx = _user_index
+    # increment before _get_payload: a pre_computed=False callable may yield to gevent,
+    # and the quota guard in invoke_endpoint relies on check->increment having no yield
+    # in between (else several users could pass the guard on the same count)
+    _requests_fired += 1
     start   = time.monotonic()
     exc     = None
     length  = 0
     payload = _get_payload(user_idx)
-
-    _requests_fired += 1
 
     try:
         result = _INVOKE_FN(payload)
@@ -182,4 +200,8 @@ class InferenceBenchmarker(FastHttpUser):
 
     @task
     def invoke_endpoint(self):
+        # Park (never fire again) once this worker's quota has been started; the user stays
+        # alive so locust doesn't respawn it to fill the --users target.
+        if _QUOTA is not None and _requests_fired >= _QUOTA:
+            gevent.sleep(float('inf'))
         _invoke()

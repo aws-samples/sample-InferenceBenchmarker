@@ -163,6 +163,11 @@ if [[ "$CONCURRENCY" -gt 0 ]]; then
     if [[ "$NUM_REQUESTS" -le 0 && "$OBS_TIME" -le 0 ]]; then
         echo "Error: --concurrency requires --obs-time or --num-requests to bound the run"; exit 1
     fi
+    # with --num-requests each worker needs at least one user: userless workers would
+    # strand their share of the fire budget (fleet fires < N and the run never terminates)
+    if [[ "$NUM_REQUESTS" -gt 0 && "$CONCURRENCY" -lt "$WORKERS" ]]; then
+        echo "Error: --concurrency ($CONCURRENCY) must be >= --workers ($WORKERS) with --num-requests; reduce --workers"; exit 1
+    fi
     LOCUST_USERS="$CONCURRENCY"
     if [[ "$OBS_TIME" -gt 0 ]]; then RUN_TIME="$OBS_TIME"; else RUN_TIME=""; fi
 elif [[ "$NUM_REQUESTS" -gt 0 && "$OBS_TIME" -gt 0 ]]; then
