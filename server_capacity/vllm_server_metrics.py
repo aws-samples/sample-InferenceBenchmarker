@@ -231,14 +231,20 @@ def _selector(metric, endpoint):
 def _native_hist_at(metric, endpoint, at_unix, region, creds):
     """Fetch one native histogram instant. -> ({(lo,hi): count}, count, sum) or None."""
     result = _query(f'vllm:{_selector(metric, endpoint)}', at_unix, region, creds)
-    if not result or "histogram" not in result[0]:
+    series = [r for r in result if "histogram" in r]
+    if not series:
         return None
-    hist = result[0]["histogram"][1]
-    buckets = {}
-    for b in hist.get("buckets", []):
-        lo, hi, cnt = round(float(b[1]), 9), round(float(b[2]), 9), float(b[3])
-        buckets[(lo, hi)] = buckets.get((lo, hi), 0.0) + cnt
-    return buckets, float(hist["count"]), float(hist["sum"])
+    # Sum across series: with vLLM data parallelism each DP rank publishes its
+    # own histogram series; reading only result[0] undercounts by ~1/DP.
+    buckets, count, total = {}, 0.0, 0.0
+    for r in series:
+        hist = r["histogram"][1]
+        for b in hist.get("buckets", []):
+            lo, hi, cnt = round(float(b[1]), 9), round(float(b[2]), 9), float(b[3])
+            buckets[(lo, hi)] = buckets.get((lo, hi), 0.0) + cnt
+        count += float(hist["count"])
+        total += float(hist["sum"])
+    return buckets, count, total
 
 
 def _hist_quantile(buckets, total, p):
